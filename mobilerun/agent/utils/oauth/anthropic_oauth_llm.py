@@ -501,8 +501,9 @@ class AnthropicOAuthLLM(CustomLLM):
                             if attempt == 0:
                                 print("Invalid paste. Try again.")
                                 continue
-                            manual_failed.set()
-                            done.set()
+                            if not done.is_set():
+                                manual_failed.set()
+                                done.set()
                             return
                         try:
                             code = _normalize_manual_code(raw, state)
@@ -511,8 +512,9 @@ class AnthropicOAuthLLM(CustomLLM):
                                 print("Invalid paste. Try again.")
                                 continue
                             print("Invalid paste.")
-                            manual_failed.set()
-                            done.set()
+                            if not done.is_set():
+                                manual_failed.set()
+                                done.set()
                             return
                         if code:
                             manual_code["code"] = code
@@ -576,20 +578,33 @@ class AnthropicOAuthLLM(CustomLLM):
             print(f"Open this URL to login:\n{auth_url}")
             if open_browser:
                 webbrowser.open(auth_url)
-            code = _normalize_manual_code(
-                str(input_fn("Paste the redirect URL or authorization code: ")),
-                state,
-            )
-            if not code:
-                raise ValueError("Authorization code was empty.")
-
-            return self._exchange_authorization_code(
-                code=code,
-                redirect_uri=redirect_uri,
-                code_verifier=code_verifier,
-                state=state,
-                expires_in=expires_in,
-            )
+            for attempt in range(2):
+                raw = str(input_fn("Paste the redirect URL or authorization code: "))
+                if not raw.strip():
+                    if attempt == 0:
+                        print("Invalid paste. Try again.")
+                        continue
+                    raise RuntimeError("Login failed.")
+                try:
+                    code = _normalize_manual_code(raw, state)
+                except Exception:  # noqa: BLE001
+                    if attempt == 0:
+                        print("Invalid paste. Try again.")
+                        continue
+                    raise RuntimeError("Login failed.")
+                if code:
+                    return self._exchange_authorization_code(
+                        code=code,
+                        redirect_uri=redirect_uri,
+                        code_verifier=code_verifier,
+                        state=state,
+                        expires_in=expires_in,
+                    )
+                if attempt == 0:
+                    print("Invalid paste. Try again.")
+                    continue
+                raise RuntimeError("Login failed.")
+            raise RuntimeError("Login failed.")
         finally:
             self.authorize_url = original_authorize_url
         

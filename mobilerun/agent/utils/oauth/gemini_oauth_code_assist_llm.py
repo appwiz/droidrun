@@ -604,8 +604,9 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                             if attempt == 0:
                                 print("Invalid paste. Try again.")
                                 continue
-                            manual_failed.set()
-                            done.set()
+                            if not done.is_set():
+                                manual_failed.set()
+                                done.set()
                             return
                         try:
                             code = _normalize_manual_code(raw, expected_state)
@@ -614,8 +615,9 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
                                 print("Invalid paste. Try again.")
                                 continue
                             print("Invalid paste.")
-                            manual_failed.set()
-                            done.set()
+                            if not done.is_set():
+                                manual_failed.set()
+                                done.set()
                             return
                         if code:
                             manual_code["code"] = code
@@ -678,14 +680,29 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         if open_browser:
             webbrowser.open(auth_url)
 
-        raw = str(input_fn("Paste the redirect URL or authorization code: "))
-        code = _normalize_manual_code(raw, expected_state)
-        if not code:
-            raise RuntimeError("Authorization code was empty.")
-
-        return self._exchange_authorization_code(
-            code, redirect_uri, code_verifier=code_verifier
-        )
+        for attempt in range(2):
+            raw = str(input_fn("Paste the redirect URL or authorization code: "))
+            if not raw.strip():
+                if attempt == 0:
+                    print("Invalid paste. Try again.")
+                    continue
+                raise RuntimeError("Login failed.")
+            try:
+                code = _normalize_manual_code(raw, expected_state)
+            except Exception:  # noqa: BLE001
+                if attempt == 0:
+                    print("Invalid paste. Try again.")
+                    continue
+                raise RuntimeError("Login failed.")
+            if code:
+                return self._exchange_authorization_code(
+                    code, redirect_uri, code_verifier=code_verifier
+                )
+            if attempt == 0:
+                print("Invalid paste. Try again.")
+                continue
+            raise RuntimeError("Login failed.")
+        raise RuntimeError("Login failed.")
 
     def _resolve_access_token(self) -> str:
         env_access_token = os.environ.get("GEMINI_OAUTH_ACCESS_TOKEN")

@@ -662,8 +662,9 @@ class OpenAIOAuth(OpenAI):
                             if attempt == 0:
                                 print("Invalid paste. Try again.")
                                 continue
-                            manual_failed.set()
-                            done.set()
+                            if not done.is_set():
+                                manual_failed.set()
+                                done.set()
                             return
                         try:
                             code = _normalize_manual_code(raw, state)
@@ -672,8 +673,9 @@ class OpenAIOAuth(OpenAI):
                                 print("Invalid paste. Try again.")
                                 continue
                             print("Invalid paste.")
-                            manual_failed.set()
-                            done.set()
+                            if not done.is_set():
+                                manual_failed.set()
+                                done.set()
                             return
                         if code:
                             manual_code["code"] = code
@@ -744,19 +746,34 @@ class OpenAIOAuth(OpenAI):
         if open_browser:
             webbrowser.open(auth_url)
 
-        raw = str(input_fn("Paste the redirect URL or authorization code: "))
-        code = _normalize_manual_code(raw, state)
-        if not code:
-            raise RuntimeError("Authorization code was empty.")
-
-        creds = self._oauth_manager.exchange_authorization_code(
-            code=code,
-            redirect_uri=redirect_uri,
-            code_verifier=code_verifier,
-        )
-        if creds.account_id:
-            object.__setattr__(self, "_oauth_account_id", creds.account_id)
-        return creds
+        for attempt in range(2):
+            raw = str(input_fn("Paste the redirect URL or authorization code: "))
+            if not raw.strip():
+                if attempt == 0:
+                    print("Invalid paste. Try again.")
+                    continue
+                raise RuntimeError("Login failed.")
+            try:
+                code = _normalize_manual_code(raw, state)
+            except Exception:  # noqa: BLE001
+                if attempt == 0:
+                    print("Invalid paste. Try again.")
+                    continue
+                raise RuntimeError("Login failed.")
+            if code:
+                creds = self._oauth_manager.exchange_authorization_code(
+                    code=code,
+                    redirect_uri=redirect_uri,
+                    code_verifier=code_verifier,
+                )
+                if creds.account_id:
+                    object.__setattr__(self, "_oauth_account_id", creds.account_id)
+                return creds
+            if attempt == 0:
+                print("Invalid paste. Try again.")
+                continue
+            raise RuntimeError("Login failed.")
+        raise RuntimeError("Login failed.")
 
     def _ensure_access_token(self) -> OpenAIOAuthCredentials:
         creds = self._oauth_manager.get_valid_credentials(skew_ms=self._oauth_refresh_skew_ms)
