@@ -644,9 +644,9 @@ class OpenAIOAuth(OpenAI):
             # desktop the server always wins anyway, and a blocked input()
             # thread would intercept InquirerPy's terminal queries and lag the
             # configure wizard.
-            enable_manual = _is_headless_environment() or bool(
-                os.environ.get("DROIDRUN_OAUTH_MANUAL")
-            )
+            enable_manual = _is_headless_environment() or os.environ.get(
+                "DROIDRUN_OAUTH_MANUAL", ""
+            ).lower() in ("1", "true", "yes")
             if enable_manual:
                 def _read_manual() -> None:
                     for attempt in range(2):

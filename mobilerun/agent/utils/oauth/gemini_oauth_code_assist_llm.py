@@ -465,12 +465,6 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
         if isinstance(refresh_token, str) and refresh_token:
             self._cached_refresh_token = refresh_token
 
-        if not self._cached_refresh_token:
-            raise RuntimeError(
-                "No refresh token received from Google. "
-                "Revoke access at https://myaccount.google.com/permissions and retry."
-            )
-
         expires_in = data.get("expires_in", 3600)
         try:
             expires_in_s = int(expires_in)
@@ -592,9 +586,9 @@ class GeminiOAuthCodeAssistLLM(CustomLLM):
             # desktop the server always wins anyway, and a blocked input()
             # thread would intercept InquirerPy's terminal queries and lag the
             # configure wizard.
-            enable_manual = _is_headless_environment() or bool(
-                os.environ.get("DROIDRUN_OAUTH_MANUAL")
-            )
+            enable_manual = _is_headless_environment() or os.environ.get(
+                "DROIDRUN_OAUTH_MANUAL", ""
+            ).lower() in ("1", "true", "yes")
             if enable_manual:
                 def _read_manual() -> None:
                     for attempt in range(2):
