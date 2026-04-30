@@ -569,6 +569,7 @@ class OpenAIOAuth(OpenAI):
 
         result: Dict[str, Optional[str]] = {"code": None, "state": None, "error": None}
         manual_code: Dict[str, Optional[str]] = {"code": None}
+        manual_failed = threading.Event()
         done = threading.Event()
         code_verifier, code_challenge = _pkce_pair()
         state = _b64_no_pad(secrets.token_bytes(32))
@@ -648,26 +649,45 @@ class OpenAIOAuth(OpenAI):
             )
             if enable_manual:
                 def _read_manual() -> None:
-                    try:
-                        raw = str(input("Or paste the redirect URL / authorization code: "))
-                    except Exception:
-                        return
-                    if done.is_set() or not raw.strip():
-                        return
-                    try:
-                        code = _normalize_manual_code(raw, state)
-                    except Exception as e:  # noqa: BLE001
-                        print(f"Invalid paste: {e}")
-                        return
-                    if code:
-                        manual_code["code"] = code
-                        done.set()
+                    for attempt in range(2):
+                        if done.is_set():
+                            return
+                        try:
+                            raw = str(input("Or paste the redirect URL / authorization code: "))
+                        except Exception:
+                            return
+                        if done.is_set():
+                            return
+                        if not raw.strip():
+                            if attempt == 0:
+                                print("Invalid paste. Try again.")
+                                continue
+                            manual_failed.set()
+                            done.set()
+                            return
+                        try:
+                            code = _normalize_manual_code(raw, state)
+                        except Exception:  # noqa: BLE001
+                            if attempt == 0:
+                                print("Invalid paste. Try again.")
+                                continue
+                            print("Invalid paste.")
+                            manual_failed.set()
+                            done.set()
+                            return
+                        if code:
+                            manual_code["code"] = code
+                            done.set()
+                            return
 
                 manual_thread = threading.Thread(target=_read_manual, daemon=True)
                 manual_thread.start()
 
             if not done.wait(timeout=timeout_seconds):
                 raise TimeoutError("OAuth login timed out before callback was received.")
+
+            if manual_failed.is_set():
+                raise RuntimeError("Login failed.")
 
             if manual_code["code"]:
                 code_to_exchange = manual_code["code"]
